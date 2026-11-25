@@ -1,14 +1,18 @@
+import { DiscordSDK } from '@discord/embedded-app-sdk';
 // No OAuth, bot token, backend or user identity is required by the calculator.
 const status = document.getElementById('discord-status');
 const params = new URLSearchParams(window.location.search);
-const embedded = window.parent !== window && params.has('frame_id');
+const embedded = window.parent !== window && (params.has('frame_id') || /\.discordsays\.com$/.test(location.hostname));
+const report = sdk => window.dispatchEvent(new CustomEvent('advisor-startup', { detail: { sdk } }));
 let sdk;
 let ready = false;
 function setStatus(message, state = '') {
   status.textContent = message;
   status.dataset.state = state;
 }
+if (!embedded) report('browser');
 if (embedded) {
+  report('loading SDK');
   setStatus('Connecting to Discord…');
   // Discord sandbox restricts normal outbound navigation. Intercept only source links.
   document.addEventListener('click', async (event) => {
@@ -25,6 +29,7 @@ if (embedded) {
   });
   connect().catch((error) => {
     console.warn('Discord SDK connection failed:', error);
+    report('connection failed: ' + String(error?.name || 'Error'));
     setStatus('Discord connection unavailable · calculator still works');
   });
 }
@@ -36,12 +41,13 @@ function showLink(url) {
   textarea.select();
 }
 async function connect() {
-  const clientId = import.meta.env?.VITE_DISCORD_CLIENT_ID?.trim();
+  const clientId = import.meta.env.VITE_DISCORD_CLIENT_ID?.trim() || '1575241594129359020';
   if (!clientId || !/^\d{17,22}$/.test(clientId)) {
+    report('invalid application ID');
     setStatus('Discord app ID not configured · calculator still works');
     return;
   }
-  const { DiscordSDK } = await import('@discord/embedded-app-sdk');
+  report('starting handshake');
   sdk = new DiscordSDK(clientId);
   let timer;
   try {
@@ -49,6 +55,10 @@ async function connect() {
       timer = setTimeout(() => reject(new Error('Discord handshake timed out')), 12000);
     })]);
     ready = true;
+    report('ready');
     setStatus('Discord Activity · No account data requested', 'connected');
+  } catch (error) {
+    report('handshake failed');
+    throw error;
   } finally { clearTimeout(timer); }
 }
